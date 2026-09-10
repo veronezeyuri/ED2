@@ -3,6 +3,9 @@
 #include <string.h>
 
 #define ARQUIVO_DADOS "dados.bin"
+#define ARQUIVO_INSERE "insere.bin"
+#define ARQUIVO_REMOVE "remove.bin"
+#define ARQUIVO_ESTADO "estado.bin"
 #define FIM_LISTA -1
 
 typedef struct
@@ -12,6 +15,15 @@ typedef struct
     char artista[51];
     char genero[21];
 } Faixa;
+
+// Dados carregados em memória dos arquivos de teste
+Faixa *faixas_insere = NULL;
+int total_insere = 0;
+int pos_insere = 0;
+
+char (*codigos_remove)[5] = NULL;
+int total_remove = 0;
+int pos_remove = 0;
 
 // Inicializa o arquivo com o cabeçalho se ele não existir
 void inicializar_arquivo()
@@ -238,35 +250,174 @@ void dump()
     fclose(f);
 }
 
-// 5. Carrega Arquivos (Esqueleto para Testes em Memória)
+// Salva o estado atual (posições nos arquivos de entrada) em disco
+void salvar_estado()
+{
+    FILE *f = fopen(ARQUIVO_ESTADO, "wb");
+    if (f)
+    {
+        fwrite(&pos_insere, sizeof(int), 1, f);
+        fwrite(&pos_remove, sizeof(int), 1, f);
+        fclose(f);
+    }
+}
+
+// Restaura o estado (posições) de uma execução anterior
+void carregar_estado()
+{
+    FILE *f = fopen(ARQUIVO_ESTADO, "rb");
+    if (f)
+    {
+        fread(&pos_insere, sizeof(int), 1, f);
+        fread(&pos_remove, sizeof(int), 1, f);
+        fclose(f);
+    }
+}
+
+// 5. Carrega Arquivos de teste em memória
 void carregar_arquivos_teste()
 {
-    // Implementação dependente da estrutura dos arquivos "insere.bin" e "remove.bin"
-    // Sugere-se ler tudo para um vetor de struct e percorrê-lo aos poucos.
+    // Carregar insere.bin (vetor de structs Faixa)
+    FILE *f = fopen(ARQUIVO_INSERE, "rb");
+    if (f)
+    {
+        fseek(f, 0, SEEK_END);
+        long tam = ftell(f);
+        total_insere = tam / sizeof(Faixa);
+        fseek(f, 0, SEEK_SET);
+
+        if (faixas_insere)
+            free(faixas_insere);
+        faixas_insere = (Faixa *)malloc(total_insere * sizeof(Faixa));
+        fread(faixas_insere, sizeof(Faixa), total_insere, f);
+        fclose(f);
+        printf("Carregadas %d faixas de %s.\n", total_insere, ARQUIVO_INSERE);
+    }
+    else
+    {
+        printf("Arquivo %s nao encontrado.\n", ARQUIVO_INSERE);
+    }
+
+    // Carregar remove.bin (vetor de códigos de 5 bytes cada)
+    f = fopen(ARQUIVO_REMOVE, "rb");
+    if (f)
+    {
+        fseek(f, 0, SEEK_END);
+        long tam = ftell(f);
+        total_remove = tam / 5; // cada código: 4 chars + '\0'
+        fseek(f, 0, SEEK_SET);
+
+        if (codigos_remove)
+            free(codigos_remove);
+        codigos_remove = malloc(total_remove * 5);
+        fread(codigos_remove, 5, total_remove, f);
+        fclose(f);
+        printf("Carregados %d codigos de %s.\n", total_remove, ARQUIVO_REMOVE);
+    }
+    else
+    {
+        printf("Arquivo %s nao encontrado.\n", ARQUIVO_REMOVE);
+    }
+
+    // Restaurar posições de uma execução anterior
+    carregar_estado();
+    printf("Posicao atual: insere=%d/%d, remove=%d/%d\n",
+           pos_insere, total_insere, pos_remove, total_remove);
+}
+
+// Insere o próximo registro do arquivo insere.bin
+void inserir_proximo()
+{
+    if (!faixas_insere)
+    {
+        printf("Arquivos nao carregados. Use opcao 5 primeiro.\n");
+        return;
+    }
+    if (pos_insere >= total_insere)
+    {
+        printf("Todos os registros de insercao ja foram utilizados (%d/%d).\n",
+               pos_insere, total_insere);
+        return;
+    }
+    Faixa fx = faixas_insere[pos_insere];
+    inserir(fx);
+    printf("Inserida faixa [%d/%d]: %s|%s|%s|%s\n",
+           pos_insere + 1, total_insere,
+           fx.cod, fx.nome, fx.artista, fx.genero);
+    pos_insere++;
+    salvar_estado();
+}
+
+// Remove o próximo registro usando código do arquivo remove.bin
+void remover_proximo()
+{
+    if (!codigos_remove)
+    {
+        printf("Arquivos nao carregados. Use opcao 5 primeiro.\n");
+        return;
+    }
+    if (pos_remove >= total_remove)
+    {
+        printf("Todos os codigos de remocao ja foram utilizados (%d/%d).\n",
+               pos_remove, total_remove);
+        return;
+    }
+    printf("Removendo faixa [%d/%d] com codigo: %s\n",
+           pos_remove + 1, total_remove, codigos_remove[pos_remove]);
+    remover(codigos_remove[pos_remove]);
+    pos_remove++;
+    salvar_estado();
 }
 
 int main()
 {
     inicializar_arquivo();
 
-    // Teste Simples
-    Faixa f1 = {"7042", "Aguas de Marco", "Elis Regina", "MPB"};
-    Faixa f2 = {"1234", "Bohemian Rhapsody", "Queen", "Rock"};
-    Faixa f3 = {"9999", "Shape of You", "Ed Sheeran", "Pop"};
+    int opcao;
+    do
+    {
+        printf("\n=== Sistema de Streaming Musical ===\n");
+        printf("1. Inserir faixa\n");
+        printf("2. Remover faixa\n");
+        printf("3. Compactar arquivo\n");
+        printf("4. Dump do arquivo\n");
+        printf("5. Carregar arquivos de teste\n");
+        printf("0. Sair\n");
+        printf("Opcao: ");
+        scanf("%d", &opcao);
 
-    inserir(f1);
-    inserir(f2);
-    inserir(f3);
+        switch (opcao)
+        {
+        case 1:
+            inserir_proximo();
+            break;
+        case 2:
+            remover_proximo();
+            break;
+        case 3:
+            compactar();
+            printf("Arquivo compactado com sucesso.\n");
+            break;
+        case 4:
+            dump();
+            break;
+        case 5:
+            carregar_arquivos_teste();
+            break;
+        case 0:
+            printf("Saindo...\n");
+            break;
+        default:
+            printf("Opcao invalida.\n");
+            break;
+        }
+    } while (opcao != 0);
 
-    remover("1234");
-    dump();
-
-    Faixa f4 = {"5555", "Halo", "Beyonce", "Pop"};
-    inserir(f4); // Testará o best-fit no espaço do 1234
-    dump();
-
-    compactar();
-    dump();
+    // Liberar memória alocada
+    if (faixas_insere)
+        free(faixas_insere);
+    if (codigos_remove)
+        free(codigos_remove);
 
     return 0;
 }
